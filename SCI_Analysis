@@ -1,0 +1,215 @@
+import csv
+import numpy as np
+import matplotlib.pyplot as plt
+
+class sci_data():
+
+	def __init__(self, filename):
+
+		self.dir = 'SCI_Project'
+		self.filename = filename
+		self.year = self.filename.split('.')[0][-4:]
+
+
+	def read_csv(self):
+
+		path_to_file = '{}/{}.csv'.format(self.year, self.filename)
+		
+		with open(path_to_file, 'r') as file:
+
+			csvreader = csv.reader(file)
+
+			big_list = []
+			for row in csvreader:
+				big_list.append(row)
+
+			self.vars = big_list[0]
+			big_data_list = big_list[1:]
+			self.num_vars = len(self.vars)
+			self.num_entries = len(big_data_list)
+
+			self.var_dict = {}
+			for each_var in self.vars:
+				self.var_dict[each_var] = []
+
+			for entry_idx in range(self.num_entries):
+				for var_idx in range(self.num_vars):
+					self.var_dict[self.vars[var_idx]].append(big_data_list[entry_idx][var_idx])
+
+
+	def make_regression(self, hist_var, hist_label, normalize, category='APrimPay', omit=[''], log=False, fig=None, ax=None):
+
+		medicaid = []
+		private = []
+
+		for eidx in range(self.num_entries):
+
+			if self.var_dict[category][eidx] == '1' and (self.var_dict[hist_var][eidx] not in omit):
+				try:
+					priv_var = int(self.var_dict[hist_var][eidx])
+					private.append(priv_var)
+				except:
+					continue
+			elif self.var_dict[category][eidx] == '3' and (self.var_dict[hist_var][eidx] not in omit):
+				try:
+					med_var = int(self.var_dict[hist_var][eidx])
+					medicaid.append(med_var)
+				except:
+					continue
+
+		nbins = 50
+		
+		if fig == None: fig, ax = plt.subplots()
+
+		ax.hist(private, bins=nbins, density=normalize, color='C1', alpha=0.5, edgecolor='black', lw='1.2', label='Private insurance')
+		ax.hist(medicaid, bins=nbins, density=normalize, color='C0', alpha=0.5, edgecolor='black', lw='1.2', label='Medicaid')
+		ax.legend(loc='best', fontsize=14)
+		ax.set_title(str(self.year), fontsize=18)
+
+		if normalize:
+			ax.set_ylabel('Fraction of patients', fontsize=14)
+		else:
+			ax.set_ylabel('Number of patients', fontsize=14)
+		ax.set_xlabel(hist_label, fontsize=14)
+
+		if log: ax.set_yscale('log')
+
+		ax.tick_params(axis='x', labelsize=14)
+		ax.tick_params(axis='y', labelsize=14)
+
+
+
+	def make_bar(self, bar_var, bar_label, category_boundaries, omit=[], fraction=False):
+
+		category_masks = []
+		category_labels = []
+
+		medicaid_base = np.array(self.var_dict['APrimPay']).astype(int) == 3
+		private_base = np.array(self.var_dict['APrimPay']).astype(int) == 1
+
+		data_array = np.array(self.var_dict[bar_var]).astype(int)
+
+		# let's omit certain values
+		omit_base = np.full(len(self.var_dict[bar_var]), fill_value=True)
+		for oo in omit:
+			omit_base = omit_base & (data_array != int(oo))
+
+		# lower bound
+		category_masks.append(data_array < category_boundaries[0])
+		category_labels.append('< {}'.format(category_boundaries[0]))
+
+		# middle bounds
+		for c in range(1,len(category_boundaries)):
+
+			category_masks.append((category_boundaries[c-1] < data_array) & (data_array <= category_boundaries[c]))
+			category_labels.append('{}-{}'.format(category_boundaries[c-1], category_boundaries[c]))
+
+
+		# upper bounds
+		category_masks.append(data_array > category_boundaries[-1])
+		category_labels.append('> {}'.format(category_boundaries[-1]))
+
+		medicaid_masks = []
+		private_masks = []
+
+		# loop to generat interesection between type of insurance and category
+		for cats in range(len(category_boundaries) + 1):
+
+			medicaid_masks.append(medicaid_base & omit_base & category_masks[cats])
+			private_masks.append(private_base & omit_base & category_masks[cats])
+
+
+		# loop to get the number of patients in each sub-selection
+		medicaid_num = []
+		private_num = []
+
+		for kats in range(len(medicaid_masks)):
+
+			mnum = np.sum(np.sum(medicaid_masks[kats]))
+			pnum = np.sum(np.sum(private_masks[kats]))
+
+			medicaid_num.append(mnum)
+			private_num.append(pnum)
+
+			print('Number in medicaid bin {}: {}'.format(kats, mnum))
+			print('Number in private bin {}: {}'.format(kats, pnum))
+
+
+		if fraction:
+
+			medicaid_num = np.array(medicaid_num)/np.sum(medicaid_num)
+			private_num = np.array(private_num)/np.sum(private_num)
+
+		fig,ax = plt.subplots()
+		ax.bar(category_labels, medicaid_num, alpha=0.5, edgecolor='black',)
+		ax.bar(category_labels, private_num, alpha=0.5, edgecolor='black')
+		ax.legend(['Medicaid', 'Private'], fontsize=14)
+		ax.set_xlabel(bar_label, fontsize=14)
+
+		if fraction:
+			ax.set_ylabel('Fraction of patients', fontsize=14)
+		else:
+			ax.set_ylabel('Number of patients', fontsize=14)
+		ax.tick_params(axis='x', labelsize=14)
+		ax.tick_params(axis='y', labelsize=14)
+
+
+#######################################
+
+# THIS IS WHAT IS RUNNING THE SCRIPT #
+
+#######################################
+
+
+### load in data for 2016
+
+data_2016 = sci_data('f1_public_2016')
+data_2016.read_csv()
+
+
+### load in data for 2021
+
+data_2021 = sci_data('f1_public_2021')
+data_2021.read_csv()
+
+
+### let's make some regressions
+
+
+fig,ax = plt.subplots(1, 2, sharey=True)
+
+# data_2016.make_regression('AI2ADays', 'Number of Days from Injury to First System Admission', normalize=True, omit=['','0','888'], log=False, fig=fig, ax=ax[0])
+data_2016.make_regression('AHDaSyAc', "Number of Days Hospitalized in System's Acute Med Unit", normalize=True, omit=['','8888','9999'], log=False, fig=fig, ax=ax[0])
+# data_2016.make_regression('AI2RhADa', 'Number of Days from Injury to Inpatient Rehab Admission', normalize=True, omit=['','888'], log=False, fig=fig, ax=ax[0])
+# data_2016.make_regression('ASDDAc2R', 'From System Acute Med to Rehab Admit', normalize=True, omit=['','888','999'], log=False, fig=fig, ax=ax[0])
+
+# data_2021.make_regression('AI2ADays', 'Number of Days from Injury to First System Admission', normalize=True, omit=['','0','888'], log=False, fig=fig, ax=ax[1])
+data_2021.make_regression('AHDaSyAc', "Number of Days Hospitalized in System's Acute Med Unit", normalize=True, omit=['','8888','9999'], log=False, fig=fig, ax=ax[1])
+# data_2021.make_regression('AI2RhADa', 'Number of Days from Injury to Inpatient Rehab Admission', normalize=True, omit=['','888'], log=False, fig=fig, ax=ax[1])
+# data_2021.make_regression('ASDDAc2R', 'From System Acute Med to Rehab Admit', normalize=True, omit=['','888','999'], log=False, fig=fig, ax=ax[1])
+
+
+### let's make bar graphs
+
+data_2016.make_bar('AI2RhADa', 'Number of Days from Injury to Inpatient Rehab Admission 2016', category_boundaries=[10,20,30], omit=['888'], fraction=True)
+data_2021.make_bar('AI2RhADa', 'Number of Days from Injury to Inpatient Rehab Admission 2021', category_boundaries=[10,20,30], omit=['888'], fraction=True)
+
+data_2016.make_bar('ASDDAc2R', 'From System Acute Med to Rehab Admit 2016', category_boundaries=[1,7], omit=['888','999'], fraction=True)
+data_2021.make_bar('ASDDAc2R', 'From System Acute Med to Rehab Admit 2021', category_boundaries=[1,7], omit=['888','999'], fraction=True)
+
+
+# This shows you the list of values for a specific variable
+# data_2016.var_dict['AI2RhADa']
+
+# This shows you how to 
+
+# var = data_2021.var_dict['AHDaSyRb']
+# bad_entries = ['','8888','9999']
+# count = 0
+# for each_entry_in_this_variable in var:
+#     if each_entry_in_this_variable in bad_entries:
+#     	count+=1
+# print(len(var) - count)
+
+
+plt.show()
